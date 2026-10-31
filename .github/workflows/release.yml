@@ -17,12 +17,24 @@ jobs:
   build:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4.2.2
-        with:
-          repository: skp-kz/skp-kz-asar-agent-win
-          ref: ${{ inputs.tag }}
-          ssh-key: ${{ secrets.SOURCE_DEPLOY_KEY }}
-          persist-credentials: false
+      # Не actions/checkout: его fetch через Windows OpenSSH на windows-раннере виснет. Берём ssh из Git for Windows (bash).
+      - name: Checkout private source
+        shell: bash
+        env:
+          KEY: ${{ secrets.SOURCE_DEPLOY_KEY }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          k="$RUNNER_TEMP/src_key"
+          printf '%s\n' "$KEY" > "$k"
+          chmod 600 "$k"
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$RUNNER_TEMP/src_known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $k -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/src_known_hosts"
+          git clone --quiet --depth 1 --branch "$TAG" git@github.com:skp-kz/skp-kz-asar-agent-win.git src
+          rm -f "$k"
+          shopt -s dotglob
+          rm -rf src/.git
+          mv src/* .
+          rmdir src
       - uses: actions/setup-node@v4.4.0
         with:
           node-version: 24.20.0
