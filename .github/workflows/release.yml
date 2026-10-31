@@ -1,0 +1,62 @@
+# Сборка asar-agent.exe из приватной skp-kz/skp-kz-asar-agent-win по тегу и публикация pre-release здесь.
+# Исходники берутся read-only deploy-ключом (секрет SOURCE_DEPLOY_KEY), в эту репу не попадают.
+# Запуск: Actions → release → Run workflow, указать тег (например v0.1.1-beta), тег уже должен быть в приватной репе.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Source tag to build and publish
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          repository: skp-kz/skp-kz-asar-agent-win
+          ref: ${{ inputs.tag }}
+          ssh-key: ${{ secrets.SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 24.20.0
+      - name: Tag matches VERSION
+        shell: pwsh
+        run: |
+          $v = node -e "import('./src/config.js').then(m => console.log(m.VERSION))"
+          if ("v$v" -ne '${{ inputs.tag }}') { throw "tag ${{ inputs.tag }} != VERSION $v in src/config.js" }
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Zip and checksums
+        shell: pwsh
+        run: |
+          $zip = "dist/asar-agent-${{ inputs.tag }}.zip"
+          Compress-Archive -Path dist/asar-agent.exe -DestinationPath $zip -CompressionLevel Optimal
+          $lines = foreach ($f in @($zip, 'dist/asar-agent.exe')) { "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower()) *$(Split-Path $f -Leaf)" }
+          $lines | Set-Content dist/SHA256SUMS.txt
+          # Для автообновления: exe и его hash отдельными файлами
+          "$((Get-FileHash dist/asar-agent.exe -Algorithm SHA256).Hash.ToLower()) *asar-agent.exe" | Set-Content dist/asar-agent.exe.sha256
+          Get-Content dist/SHA256SUMS.txt
+          $ver = (& dist/asar-agent.exe --version | Out-String).Trim()
+          if ("v$ver" -ne '${{ inputs.tag }}') { throw "exe reports $ver, tag ${{ inputs.tag }}" }
+      - name: Publish pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ inputs.tag }}'
+          $assets = @("dist/asar-agent-$tag.zip", 'dist/SHA256SUMS.txt', 'dist/asar-agent.exe', 'dist/asar-agent.exe.sha256')
+          gh release view $tag -R "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @assets --clobber -R "${{ github.repository }}"
+          } else {
+            gh release create $tag @assets --prerelease --target main --title $tag --notes "Asar agent for Windows $tag (beta, unsigned)." -R "${{ github.repository }}"
+          }
+          if ($LASTEXITCODE -ne 0) { throw "gh release failed" }
