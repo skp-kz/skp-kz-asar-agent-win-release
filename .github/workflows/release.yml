@@ -31,12 +31,9 @@ jobs:
           chmod 600 "$k"
           echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$t/src_known_hosts"
           export GIT_SSH_COMMAND="ssh -i $k -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$t/src_known_hosts"
-          git clone --quiet --depth 1 --branch "$TAG" git@github.com:skp-kz/skp-kz-asar-agent-win.git src
+          git clone --quiet --depth 1 --branch "$TAG" git@github.com:skp-kz/skp-kz-asar-agent-win.git .
           rm -f "$k"
-          shopt -s dotglob
-          rm -rf src/.git
-          mv src/* .
-          rmdir src
+          rm -rf .git
       - uses: actions/setup-node@v4.4.0
         with:
           node-version: 24.20.0
